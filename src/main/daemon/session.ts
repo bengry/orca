@@ -192,6 +192,7 @@ export class Session {
   }
 
   attachClient(client: Omit<AttachedClient, 'token'>): symbol {
+    this.shellReady.releaseDeviceAttributesOnAttach()
     return this.output.attachClient(client)
   }
 

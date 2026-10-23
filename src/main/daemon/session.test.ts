@@ -371,12 +371,33 @@ describe('Session', () => {
       ['DECRPM bracketed-paste mode', '\x1b[?2004$p']
     ])('does not reply to %s query', async (_label, query) => {
       createSession({ shellReadySupported: false })
+      session.attachClient({ onData: () => {}, onExit: () => {} })
       subprocess.simulateData(query)
       // Let nested xterm completion microtasks settle.
       await Promise.resolve()
       await Promise.resolve()
       expect(subprocess.written).toEqual([])
     })
+  })
+
+  describe('device attributes before the first attach', () => {
+    // The renderer suppresses replies to replayed bytes, so a pre-attach DA1 would go unanswered.
+    it.skipIf(process.platform === 'win32')(
+      'answers DA1 without recording it, then defers to the attached client',
+      () => {
+        createSession({ shellReadySupported: false })
+
+        subprocess.simulateData('\x1b[c')
+
+        expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+        expect(session.takePendingOutput(false)?.records).toEqual([])
+
+        session.attachClient({ onData: () => {}, onExit: () => {} })
+        subprocess.simulateData('\x1b[c')
+
+        expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+      }
+    )
   })
 
   describe('shell readiness gating', () => {

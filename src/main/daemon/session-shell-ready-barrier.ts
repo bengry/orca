@@ -51,17 +51,16 @@ export class SessionShellReadyBarrier {
       this._state = 'pending'
       this.scanState = createShellStartupOutputScanState()
       // Answer DA1 past queued stdin, or a shell waiting for that reply can never emit its ready marker.
-      this.releaseDeviceAttributesResponder = installDeviceAttributesResponder({
-        parser: deps.responderParser,
-        response: STARTUP_DA1_RESPONSE,
-        reply: (data) => deps.subprocess.write(data)
-      })
-      deps.installDeviceAttributesFilter()
+      this.installStartupDeviceAttributes()
       this.readyTimer = setTimeout(() => {
         this.onShellReadyTimeout()
       }, deps.shellReadyTimeoutMs ?? SHELL_READY_TIMEOUT_MS)
     } else {
       this._state = 'unsupported'
+      // Renderers suppress replies to replayed bytes, so a DA1 sent before the first attach would go unanswered.
+      if (process.platform !== 'win32') {
+        this.installStartupDeviceAttributes()
+      }
     }
 
     this.postReadyFlushGate = new PostReadyFlushGate(
@@ -138,6 +137,13 @@ export class SessionShellReadyBarrier {
     return heldBytes
   }
 
+  /** An attached client answers DA1 for an ungated shell from here on. */
+  releaseDeviceAttributesOnAttach(): void {
+    if (this._state === 'unsupported') {
+      this.releaseDeviceAttributes()
+    }
+  }
+
   /** Release startup DA1 authority on every completion path. */
   releaseDeviceAttributes(): void {
     this.releaseDeviceAttributesResponder?.()
@@ -196,6 +202,15 @@ export class SessionShellReadyBarrier {
     } catch {
       // A throwing diagnostic sink must not strand the barrier after its ready timer is cleared.
     }
+  }
+
+  private installStartupDeviceAttributes(): void {
+    this.releaseDeviceAttributesResponder = installDeviceAttributesResponder({
+      parser: this.deps.responderParser,
+      response: STARTUP_DA1_RESPONSE,
+      reply: (data) => this.deps.subprocess.write(data)
+    })
+    this.deps.installDeviceAttributesFilter()
   }
 
   private onShellReadyTimeout(): void {
