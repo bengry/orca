@@ -2,7 +2,13 @@ import { EventEmitter } from 'node:events'
 import { ipcMain as ipc, type BrowserWindow } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectMovePauseRequest } from '../../shared/project-move-pause'
-import type { WorkspaceSleepOutcome } from '../../shared/workspace-sleep'
+import type { WorkspaceSleepOutcome, WorkspaceSleepTarget } from '../../shared/workspace-sleep'
+
+type PauseResponseFixture = { requestId?: string; protocol?: number } & (
+  | { phase: 'prepare'; targets: WorkspaceSleepTarget[] }
+  | { phase: 'persist' }
+  | { phase: 'error'; error: string }
+)
 
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
@@ -34,7 +40,7 @@ function fixture() {
     }
     return value
   }
-  const respond = (value: object, sender: unknown = webContents): void => {
+  const respond = (value: PauseResponseFixture, sender: unknown = webContents): void => {
     ipc.emit(
       'ui:projectMovePauseResponse',
       { sender },
