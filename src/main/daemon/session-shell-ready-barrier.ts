@@ -43,6 +43,7 @@ export class SessionShellReadyBarrier {
   private promptReadinessProbe: ShellPromptReadinessProbe | null = null
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   private releaseDeviceAttributesResponder: (() => void) | null = null
+  private answeredStartupDeviceAttributes = false
   private preReadyStdinQueue: string[] = []
   private readonly postReadyFlushGate: PostReadyFlushGate
 
@@ -57,9 +58,13 @@ export class SessionShellReadyBarrier {
       }, deps.shellReadyTimeoutMs ?? SHELL_READY_TIMEOUT_MS)
     } else {
       this._state = 'unsupported'
-      // Renderers suppress replies to replayed bytes, so a DA1 sent before the first attach would go unanswered.
+      // Why: the daemon stream client attaches at creation, but the renderer behind it may not exist yet and suppresses replies to replayed bytes.
       if (process.platform !== 'win32') {
         this.installStartupDeviceAttributes()
+        this.readyTimer = setTimeout(() => {
+          this.readyTimer = null
+          this.releaseDeviceAttributes()
+        }, SHELL_READY_TIMEOUT_MS)
       }
     }
 
@@ -118,6 +123,10 @@ export class SessionShellReadyBarrier {
     }
 
     this.deps.acceptStartupIngress(data)
+    // Why: hand DA1 back only after this chunk passed the filter, so the answered query never reaches a renderer.
+    if (this._state === 'unsupported' && this.answeredStartupDeviceAttributes) {
+      releaseStartupDeviceAttributes = true
+    }
     if (this._state === 'pending' && data.length > 0) {
       this.promptReadinessProbe?.notifyOutput(data)
     }
@@ -137,17 +146,11 @@ export class SessionShellReadyBarrier {
     return heldBytes
   }
 
-  /** An attached client answers DA1 for an ungated shell from here on. */
-  releaseDeviceAttributesOnAttach(): void {
-    if (this._state === 'unsupported') {
-      this.releaseDeviceAttributes()
-    }
-  }
-
   /** Release startup DA1 authority on every completion path. */
   releaseDeviceAttributes(): void {
     this.releaseDeviceAttributesResponder?.()
     this.releaseDeviceAttributesResponder = null
+    this.answeredStartupDeviceAttributes = false
     this.deps.releaseDeviceAttributesFilter()
   }
 
@@ -208,7 +211,10 @@ export class SessionShellReadyBarrier {
     this.releaseDeviceAttributesResponder = installDeviceAttributesResponder({
       parser: this.deps.responderParser,
       response: STARTUP_DA1_RESPONSE,
-      reply: (data) => this.deps.subprocess.write(data)
+      reply: (data) => {
+        this.deps.subprocess.write(data)
+        this.answeredStartupDeviceAttributes = true
+      }
     })
     this.deps.installDeviceAttributesFilter()
   }

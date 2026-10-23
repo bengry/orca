@@ -371,7 +371,8 @@ describe('Session', () => {
       ['DECRPM bracketed-paste mode', '\x1b[?2004$p']
     ])('does not reply to %s query', async (_label, query) => {
       createSession({ shellReadySupported: false })
-      session.attachClient({ onData: () => {}, onExit: () => {} })
+      // End the startup window, during which the daemon itself answers DA1.
+      vi.advanceTimersByTime(15_000)
       subprocess.simulateData(query)
       // Let nested xterm completion microtasks settle.
       await Promise.resolve()
@@ -380,22 +381,43 @@ describe('Session', () => {
     })
   })
 
-  describe('device attributes before the first attach', () => {
-    // The renderer suppresses replies to replayed bytes, so a pre-attach DA1 would go unanswered.
+  describe('startup device attributes for an ungated shell', () => {
+    // The daemon stream client attaches at creation, before any renderer exists to answer DA1.
     it.skipIf(process.platform === 'win32')(
-      'answers DA1 without recording it, then defers to the attached client',
+      'answers the first DA1 without forwarding it, then defers to the attached client',
       () => {
         createSession({ shellReadySupported: false })
+        const received: string[] = []
+        session.attachClient({ onData: (data) => received.push(data), onExit: () => {} })
 
         subprocess.simulateData('\x1b[c')
 
         expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+        expect(received.join('')).toBe('')
         expect(session.takePendingOutput(false)?.records).toEqual([])
 
-        session.attachClient({ onData: () => {}, onExit: () => {} })
         subprocess.simulateData('\x1b[c')
 
         expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+        expect(received.join('')).toBe('\x1b[c')
+      }
+    )
+
+    it.skipIf(process.platform === 'win32')(
+      'delivers a held DA1 prefix once when the startup window ends',
+      () => {
+        createSession({ shellReadySupported: false })
+        const received: string[] = []
+        session.attachClient({ onData: (data) => received.push(data), onExit: () => {} })
+
+        subprocess.simulateData('\x1b[')
+        expect(received.join('')).toBe('')
+
+        vi.advanceTimersByTime(15_000)
+        subprocess.simulateData('c')
+
+        expect(received.join('')).toBe('\x1b[c')
+        expect(subprocess.written).toEqual([])
       }
     )
   })

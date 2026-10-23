@@ -756,6 +756,29 @@ describe('TerminalHost', () => {
     })
   })
 
+  describe('startup DA1 for an ungated shell', () => {
+    // The daemon stream client attaches at creation, before any renderer exists to answer DA1.
+    it('answers the first DA1 although the stream client attached at creation, then defers', async () => {
+      const received: string[] = []
+      await host.createOrAttach({
+        sessionId: 'session-1',
+        cols: 80,
+        rows: 24,
+        streamClient: { onData: (data) => received.push(data), onExit: vi.fn() }
+      })
+
+      lastSubprocess._onDataCb?.('\x1b[c')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(vi.mocked(lastSubprocess.write).mock.calls).toEqual([['\x1b[?1;2c']])
+      expect(received.join('')).toBe('')
+
+      lastSubprocess._onDataCb?.('\x1b[c')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(vi.mocked(lastSubprocess.write).mock.calls).toEqual([['\x1b[?1;2c']])
+      expect(received.join('')).toBe('\x1b[c')
+    })
+  })
+
   describe('detach', () => {
     it('detaches a client from a session', async () => {
       const onData = vi.fn()
