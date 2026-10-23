@@ -28,4 +28,14 @@ describe('updateTerminalRemoteRuntimeRecoveryUiState', () => {
 
     expect(updateTerminalRemoteRuntimeRecoveryUiState(disconnected, 7, null)).toEqual({})
   })
+  it('returns a new map when a pane with no visible state ends, to wake the reconciler', () => {
+    const previous = {}
+    const next = updateTerminalRemoteRuntimeRecoveryUiState(previous, 7, {
+      phase: 'ended',
+      epoch: 0,
+      attempt: 0
+    })
+    expect(next).toEqual({})
+    expect(next).not.toBe(previous)
+  })
 })

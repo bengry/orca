@@ -21,7 +21,9 @@ export function updateTerminalRemoteRuntimeRecoveryUiState(
     return previous[paneId] === state ? previous : { ...previous, [paneId]: state }
   }
   if (!(paneId in previous)) {
-    return previous
+    // Why: an unbound transport lets the reconciler remove a host-retired pane; a
+    // fresh map identity wakes it, since no visible phase change would.
+    return state?.phase === 'ended' ? { ...previous } : previous
   }
   const next = { ...previous }
   delete next[paneId]
