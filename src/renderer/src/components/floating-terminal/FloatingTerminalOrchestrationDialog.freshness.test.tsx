@@ -9,18 +9,23 @@ import { _skillFreshnessCacheForTests } from '@/hooks/useSkillFreshness'
 import { FloatingTerminalOrchestrationDialog } from './FloatingTerminalOrchestrationDialog'
 
 const mocks = vi.hoisted(() => ({
-  canUseLocalSkillFreshness: true,
+  canUseSkillFreshness: true,
   refreshOrchestrationSkill: vi.fn(async () => true),
   recordFeatureInteraction: vi.fn()
+}))
+
+// Why: these tests count the freshness plans; the button's own plan is covered elsewhere.
+vi.mock('@/hooks/use-bundled-skill-install-action', () => ({
+  useBundledSkillInstallAction: () => ({ kind: 'run' })
 }))
 
 vi.mock('@/hooks/useActiveProjectSkillRuntime', () => ({
   useActiveProjectSkillRuntime: () => ({
     agentRuntime: undefined,
     discoveryTarget: undefined,
-    terminalShellOverride: undefined,
     installDisabledReason: null,
-    canUseLocalSkillFreshness: mocks.canUseLocalSkillFreshness
+    canUseSkillFreshness: mocks.canUseSkillFreshness,
+    bundledSkillTarget: mocks.canUseSkillFreshness ? { kind: 'local' } : null
   })
 }))
 
@@ -34,17 +39,6 @@ vi.mock('@/hooks/useInstalledAgentSkills', () => ({
   }),
   notifyInstalledAgentSkillsChanged: vi.fn(),
   notifyInstalledAgentSkillsRefreshed: vi.fn()
-}))
-
-vi.mock('@/components/settings/CliSkillRuntimeSetup', () => ({
-  buildSkillCommandForRuntime: (command: string) => command,
-  buildSkillSetupTerminalCommand: (command: string) => command,
-  ensureWslCliAvailableForAgentSkillTerminal: vi.fn(),
-  getWslCliDistroRequest: () => undefined
-}))
-
-vi.mock('@/components/onboarding/OnboardingInlineCommandTerminal', () => ({
-  OnboardingInlineCommandTerminal: () => null
 }))
 
 vi.mock('@/store', () => ({
@@ -82,7 +76,7 @@ async function renderDialog(): Promise<void> {
 describe('FloatingTerminalOrchestrationDialog freshness', () => {
   beforeEach(() => {
     _skillFreshnessCacheForTests.reset()
-    mocks.canUseLocalSkillFreshness = true
+    mocks.canUseSkillFreshness = true
     mocks.refreshOrchestrationSkill.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -125,7 +119,7 @@ describe('FloatingTerminalOrchestrationDialog freshness', () => {
   })
 
   it('never reads client freshness for an SSH-owned skill', async () => {
-    mocks.canUseLocalSkillFreshness = false
+    mocks.canUseSkillFreshness = false
     const bundledPlan = vi.fn().mockResolvedValue(plan([]))
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a test double implements only the preload methods this code path calls.
     window.api = {

@@ -1,4 +1,8 @@
+import type { BundledSkillPlan } from '../../../../shared/bundled-skill-plan'
+import type { BundledSkillTarget } from '@/lib/bundled-skill-target'
+import type { BundledSkillUnsupportedReason } from '@/runtime/runtime-bundled-skills-client'
 import { useSkillFreshness } from '@/hooks/useSkillFreshness'
+import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
 import { translate } from '@/i18n/i18n'
 import { Button } from '@/components/ui/button'
 import { IntegrationStatusPill } from '@/components/integration-status-pill'
@@ -51,7 +55,12 @@ function statusPill(status: SkillFreshnessDisplayStatus): React.JSX.Element {
 // update exists, that every copy is current, or that a copy is left for the user — and
 // green must never stand in for that last case.
 export function SkillFreshnessStatusPill({ skillName }: { skillName: string }): React.JSX.Element {
-  const { plan, loading, error } = useSkillFreshness()
+  const { plan, unsupported, loading, error } = useSkillFreshness(
+    useActiveProjectSkillRuntime().bundledSkillTarget
+  )
+  if (unsupported) {
+    return <SkillUnsupportedStatusPill reason={unsupported} />
+  }
   if (loading && !plan) {
     return (
       <IntegrationStatusPill tone="neutral">
@@ -66,14 +75,62 @@ export function SkillFreshnessStatusPill({ skillName }: { skillName: string }): 
       </IntegrationStatusPill>
     )
   }
+  return <SkillPlanStatusPill plan={plan} skillName={skillName} />
+}
+
+export function SkillUnsupportedStatusPill({
+  reason
+}: {
+  reason: BundledSkillUnsupportedReason
+}): React.JSX.Element {
+  return (
+    <IntegrationStatusPill tone="neutral">
+      {reason === 'connect-host'
+        ? translate(
+            'auto.components.skills.SkillFreshnessStatusPill.connectHost',
+            'Connect the SSH host'
+          )
+        : translate(
+            'auto.components.skills.SkillFreshnessStatusPill.updateServer',
+            'Update Orca on the server'
+          )}
+    </IntegrationStatusPill>
+  )
+}
+
+export function SkillPlanStatusPill({
+  plan,
+  skillName,
+  target
+}: {
+  plan: BundledSkillPlan | null
+  skillName: string
+  target?: BundledSkillTarget | null
+}): React.JSX.Element {
   const status = getSkillFreshnessDisplayStatus(plan, skillName)
+  const entry = plan?.skills.find((skill) => skill.name === skillName)
+  const needsAttention =
+    hasSkillCopyNeedingAttention(plan, skillName) ||
+    Boolean(
+      entry?.ops.some(
+        (op) => op.kind === 'leave' && (op.reason === 'edited' || op.reason === 'other')
+      )
+    )
   // Why: the dialog lists every location and what the update does there, so Details is
   // offered whenever the plan has anything for this skill, including an agent to link.
-  const hasDetails = skillPlanHasDetails(plan, skillName)
-  const needsAttention = hasSkillCopyNeedingAttention(plan, skillName)
+  const hasDetails = needsAttention || skillPlanHasDetails(plan, skillName)
   return (
     <span className="inline-flex items-center gap-2">
-      {statusPill(status)}
+      {statusPill(
+        needsAttention
+          ? 'needs-attention'
+          : status === 'up-to-date' &&
+              entry?.ops.some(
+                (op) => op.kind === 'write' || op.kind === 'link' || op.kind === 'copy'
+              )
+            ? 'installed'
+            : status
+      )}
       {hasDetails ? (
         <Button
           // Why: ghost, not link — this sits in a header row rather than inside a
@@ -86,7 +143,7 @@ export function SkillFreshnessStatusPill({ skillName }: { skillName: string }): 
             'gap-1 px-1.5 text-[11px]',
             needsAttention && 'text-amber-500 hover:text-amber-500'
           )}
-          onClick={() => requestSkillFreshnessUpdateDialog()}
+          onClick={() => requestSkillFreshnessUpdateDialog(target)}
         >
           {needsAttention ? <AlertTriangle className="size-3" /> : null}
           {translate('auto.components.skills.SkillFreshnessStatusPill.details', 'Details')}
