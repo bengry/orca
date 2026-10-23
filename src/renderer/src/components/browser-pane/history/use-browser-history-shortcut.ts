@@ -46,8 +46,14 @@ export function useBrowserHistoryShortcut({
     }
     const shortcutPlatform = getShortcutPlatform()
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (!keybindingMatchesAction('browser.showHistory', event, shortcutPlatform, keybindings)) {
+        return
+      }
+      // Why: an open view keeps its page; its portaled search field sits outside every pane, so
+      // ownership would hand the chord, and the next pick, to whichever pane claims stray keys.
+      const historyOpen = useAppStore.getState().browserHistoryPageId !== null
       if (
-        !keybindingMatchesAction('browser.showHistory', event, shortcutPlatform, keybindings) ||
+        !historyOpen &&
         !browserChromeShortcutOwnsEvent(chromeShortcutScope, event, workspaceId)
       ) {
         return
@@ -55,7 +61,9 @@ export function useBrowserHistoryShortcut({
       event.preventDefault()
       // Why: every mounted pane registers this same capture listener on window.
       event.stopImmediatePropagation()
-      setBrowserHistoryPageId(browserTabId)
+      if (!historyOpen) {
+        setBrowserHistoryPageId(browserTabId)
+      }
     }
     addAppKeyListener('keydown', handleKeyDown)
     return () => removeAppKeyListener('keydown', handleKeyDown)
