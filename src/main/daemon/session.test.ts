@@ -384,21 +384,24 @@ describe('Session', () => {
   describe('startup device attributes for an ungated shell', () => {
     // The daemon stream client attaches at creation, before any renderer exists to answer DA1.
     it.skipIf(process.platform === 'win32')(
-      'answers the first DA1 without forwarding it, then defers to the attached client',
+      'answers every DA1 until the client sends input, then defers to the client',
       () => {
         createSession({ shellReadySupported: false })
         const received: string[] = []
         session.attachClient({ onData: (data) => received.push(data), onExit: () => {} })
 
-        subprocess.simulateData('\x1b[c')
+        // fish 4.x sends a second blocking DA1 right after the first is answered.
+        subprocess.simulateData('\x1b[0c')
+        subprocess.simulateData('\x1b[0c')
 
-        expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+        expect(subprocess.written).toEqual(['\x1b[?1;2c', '\x1b[?1;2c'])
         expect(received.join('')).toBe('')
         expect(session.takePendingOutput(false)?.records).toEqual([])
 
+        session.write('a')
         subprocess.simulateData('\x1b[c')
 
-        expect(subprocess.written).toEqual(['\x1b[?1;2c'])
+        expect(subprocess.written).toEqual(['\x1b[?1;2c', '\x1b[?1;2c', 'a'])
         expect(received.join('')).toBe('\x1b[c')
       }
     )

@@ -43,7 +43,6 @@ export class SessionShellReadyBarrier {
   private promptReadinessProbe: ShellPromptReadinessProbe | null = null
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   private releaseDeviceAttributesResponder: (() => void) | null = null
-  private answeredStartupDeviceAttributes = false
   private preReadyStdinQueue: string[] = []
   private readonly postReadyFlushGate: PostReadyFlushGate
 
@@ -123,10 +122,6 @@ export class SessionShellReadyBarrier {
     }
 
     this.deps.acceptStartupIngress(data)
-    // Why: hand DA1 back only after this chunk passed the filter, so the answered query never reaches a renderer.
-    if (this._state === 'unsupported' && this.answeredStartupDeviceAttributes) {
-      releaseStartupDeviceAttributes = true
-    }
     if (this._state === 'pending' && data.length > 0) {
       this.promptReadinessProbe?.notifyOutput(data)
     }
@@ -146,11 +141,19 @@ export class SessionShellReadyBarrier {
     return heldBytes
   }
 
+  /** First client input proves a live renderer, which then answers DA1 itself. */
+  noteClientInput(): void {
+    // Why: fish sends a second blocking DA1 right after the first is answered; a renderer that
+    // does not exist yet cannot reply, and fish would ignore all input for its 10 s timeout.
+    if (this._state === 'unsupported' && this.releaseDeviceAttributesResponder) {
+      this.releaseDeviceAttributes()
+    }
+  }
+
   /** Release startup DA1 authority on every completion path. */
   releaseDeviceAttributes(): void {
     this.releaseDeviceAttributesResponder?.()
     this.releaseDeviceAttributesResponder = null
-    this.answeredStartupDeviceAttributes = false
     this.deps.releaseDeviceAttributesFilter()
   }
 
@@ -211,10 +214,7 @@ export class SessionShellReadyBarrier {
     this.releaseDeviceAttributesResponder = installDeviceAttributesResponder({
       parser: this.deps.responderParser,
       response: STARTUP_DA1_RESPONSE,
-      reply: (data) => {
-        this.deps.subprocess.write(data)
-        this.answeredStartupDeviceAttributes = true
-      }
+      reply: (data) => this.deps.subprocess.write(data)
     })
     this.deps.installDeviceAttributesFilter()
   }
